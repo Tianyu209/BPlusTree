@@ -1,7 +1,7 @@
 import time
-from record import Record
-from storage import DBFile, load_records
+from storage import Record, DBFile, load_records
 from bptree import BPTree
+import pandas as pd
 
 def build_storage(records, block_size):
     """Build storage by creating a DBFile and adding records."""
@@ -15,6 +15,7 @@ def build_index_iterative(db, order):
     tree = BPTree(order)
     for record in db.get_all_records():
         tree.insert(record.FG_PCT_home, record)
+    tree.fix_leaf_links()
     return tree
 
 def get_data_block_accesses(db, records):
@@ -39,7 +40,7 @@ def linear_scan(db, key_min, key_max):
     end = time.time()
     return results, db.block_access_count, end - start
 
-def print_report(storage_stats, iterative_index_stats, bulk_index_stats, iterative_search_stats, bulk_search_stats, linear_search_stats):
+def print_report(storage_stats, iterative_index_stats, bulk_index_stats, iterative_search_stats, bulk_search_stats, linear_search_stats,boolean):
     """Print report statistics for storage, indexing, and search operations."""
     print("Storage Component Statistics:")
     print("Record size:", storage_stats["record_size"])
@@ -47,24 +48,26 @@ def print_report(storage_stats, iterative_index_stats, bulk_index_stats, iterati
     print("Number of records per block:", storage_stats["records_per_block"])
     print("Total number of blocks:", storage_stats["total_blocks"])
     print("")
-    print("Iterative B+ Tree Statistics:")
-    print("B+ tree order (n):", iterative_index_stats["order"])
-    print("Total number of index nodes:", iterative_index_stats["total_nodes"])
-    print("Number of levels in B+ tree:", iterative_index_stats["levels"])
-    print("Root node keys:", iterative_index_stats["root_keys"])
-    print("")
+    if boolean:
+        print("Iterative B+ Tree Statistics:")
+        print("B+ tree order (n):", iterative_index_stats["order"])
+        print("Total number of index nodes:", iterative_index_stats["index_nodes"])
+        print("Number of levels in B+ tree:", iterative_index_stats["levels"])
+        print("Root node keys:", iterative_index_stats["root_keys"])
+        print("")
     print("Bulk Loading B+ Tree Statistics:")
     print("B+ tree order (n):", bulk_index_stats["order"])
-    print("Total number of index nodes:", bulk_index_stats["total_nodes"])
+    print("Total number of index nodes:", bulk_index_stats["index_nodes"])
     print("Number of levels in B+ tree:", bulk_index_stats["levels"])
     print("Root node keys:", bulk_index_stats["root_keys"])
     print("")
-    print("Search Operation Statistics (Iterative B+ Tree):")
-    print("Number of index nodes accessed:", iterative_search_stats["index_nodes_accessed"])
-    print("Number of data blocks accessed:", iterative_search_stats["data_blocks_accessed"])
-    print("Average FG_PCT_home of returned records:", iterative_search_stats["average_fg_pct_home"])
-    print("B+ tree search running time (seconds):", iterative_search_stats["bptree_search_time"])
-    print("")
+    if boolean:
+        print("Search Operation Statistics (Iterative B+ Tree):")
+        print("Number of index nodes accessed:", iterative_search_stats["index_nodes_accessed"])
+        print("Number of data blocks accessed:", iterative_search_stats["data_blocks_accessed"])
+        print("Average FG_PCT_home of returned records:", iterative_search_stats["average_fg_pct_home"])
+        print("B+ tree search running time (seconds):", iterative_search_stats["bptree_search_time"])
+        print("")
     print("Search Operation Statistics (Bulk Loading B+ Tree):")
     print("Number of index nodes accessed:", bulk_search_stats["index_nodes_accessed"])
     print("Number of data blocks accessed:", bulk_search_stats["data_blocks_accessed"])
@@ -75,7 +78,7 @@ def print_report(storage_stats, iterative_index_stats, bulk_index_stats, iterati
     print("Number of data blocks accessed:", linear_search_stats["data_blocks_accessed"])
     print("Linear scan running time (seconds):", linear_search_stats["linear_scan_time"])
 
-def main():
+def main(bool):
     """Main function to run storage and indexing operations and print report statistics."""
     records = load_records("data/games.txt")
     block_size = 4096
@@ -92,23 +95,24 @@ def main():
     }
     order = 4
     tree_iterative = build_index_iterative(db, order)
-    iterative_total_nodes = tree_iterative.count_nodes()
+    iterative_index_nodes = tree_iterative.count_index_nodes()
     iterative_levels = tree_iterative.tree_levels()
     iterative_root_keys = tree_iterative.get_root_keys()
     iterative_index_stats = {
         "order": order,
-        "total_nodes": iterative_total_nodes,
+        "index_nodes": iterative_index_nodes,
         "levels": iterative_levels,
         "root_keys": iterative_root_keys
     }
     tree_bulk = BPTree(order)
     tree_bulk.bulk_load(db.get_all_records())
-    bulk_total_nodes = tree_bulk.count_nodes()
+    tree_bulk.fix_leaf_links()
+    bulk_index_nodes = tree_bulk.count_index_nodes()
     bulk_levels = tree_bulk.tree_levels()
     bulk_root_keys = tree_bulk.get_root_keys()
     bulk_index_stats = {
         "order": order,
-        "total_nodes": bulk_total_nodes,
+        "index_nodes": bulk_index_nodes,
         "levels": bulk_levels,
         "root_keys": bulk_root_keys
     }
@@ -143,7 +147,10 @@ def main():
         "data_blocks_accessed": linear_data_blocks_accessed,
         "linear_scan_time": linear_scan_time
     }
-    print_report(storage_stats, iterative_index_stats, bulk_index_stats, iterative_search_stats, bulk_search_stats, linear_search_stats)
+    print_report(storage_stats, iterative_index_stats, bulk_index_stats, iterative_search_stats, bulk_search_stats, linear_search_stats,bool)
+    df = pd.read_csv("data/games.txt", sep="\t", header=0)
+    flt = df[(df["FG_PCT_home"]>=0.6) & (df["FG_PCT_home"]<=0.9)]["FG_PCT_home"]
+    print(f"The real average is: {sum(flt)/flt.count()}")
 
 if __name__ == "__main__":
-    main()
+    main(False)

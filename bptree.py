@@ -51,39 +51,39 @@ class BPTree:
         self.root = LeafNode(order)
         self.index_access_count = 0
     def insert(self, key, value):
-        root = self.root
-        if isinstance(root, LeafNode):
-            root.insert(key, value)
-            if len(root.keys) == self.order:
-                new_leaf, new_key = root.split()
-                new_root = InternalNode(self.order)
-                new_root.keys = [new_key]
-                new_root.children = [root, new_leaf]
-                self.root = new_root
-        else:
-            self._insert_internal(root, key, value)
-    def _insert_internal(self, node, key, value):
+        self.index_access_count = 0
+        result = self._insert(self.root, key, value)
+        if result is not None:
+            new_key, new_child = result
+            new_root = InternalNode(self.order)
+            new_root.keys = [new_key]
+            new_root.children = [self.root, new_child]
+            self.root = new_root
+    def _insert(self, node, key, value):
         if isinstance(node, LeafNode):
             node.insert(key, value)
-            if len(node.keys) == self.order:
+            if len(node.keys) >= self.order:
                 new_leaf, new_key = node.split()
-                return new_key, new_leaf
-            return None
+                return (new_key, new_leaf)
+            else:
+                return None
         else:
             self.index_access_count += 1
             idx = 0
             while idx < len(node.keys) and key >= node.keys[idx]:
                 idx += 1
-            result = self._insert_internal(node.children[idx], key, value)
+            result = self._insert(node.children[idx], key, value)
             if result is not None:
                 new_key, new_child = result
                 node.insert_child(new_key, new_child)
-                if len(node.keys) == self.order:
+                if len(node.keys) >= self.order:
                     new_internal, up_key = node.split()
-                    return up_key, new_internal
-            return None
+                    return (up_key, new_internal)
+                else:
+                    return None
+            else:
+                return None
     def bulk_load(self, records):
-        """Bulk load the B+ tree from a sorted list of records using FG_PCT_home as key."""
         sorted_records = sorted(records, key=lambda r: r.FG_PCT_home)
         leaf_capacity = self.order - 1
         leaves = []
@@ -118,8 +118,19 @@ class BPTree:
                 i += internal_capacity
             level_nodes = new_level
         self.root = level_nodes[0]
+    def fix_leaf_links(self):
+        node = self.root
+        while not isinstance(node, LeafNode):
+            node = node.children[0]
+        leaves = []
+        while node:
+            leaves.append(node)
+            node = node.next
+        for i in range(len(leaves)-1):
+            leaves[i].next = leaves[i+1]
+        if leaves:
+            leaves[-1].next = None
     def search_range(self, key_min, key_max):
-        """Search the B+ tree for records with keys in the given range. Returns a tuple (records, index_nodes_accessed)."""
         records = []
         self.index_access_count = 0
         node = self.root
@@ -139,7 +150,6 @@ class BPTree:
             node = node.next
         return records, self.index_access_count
     def count_nodes(self):
-        """Return the total number of nodes in the B+ tree."""
         nodes = []
         queue = [self.root]
         while queue:
@@ -149,8 +159,17 @@ class BPTree:
                 for child in node.children:
                     queue.append(child)
         return len(nodes)
+    def count_index_nodes(self):
+        count = 0
+        queue = [self.root]
+        while queue:
+            node = queue.pop(0)
+            if not isinstance(node, LeafNode):
+                count += 1
+                for child in node.children:
+                    queue.append(child)
+        return count
     def tree_levels(self):
-        """Return the number of levels in the B+ tree."""
         levels = 0
         node = self.root
         while not isinstance(node, LeafNode):
@@ -158,10 +177,8 @@ class BPTree:
             node = node.children[0]
         return levels + 1
     def get_root_keys(self):
-        """Return the keys contained in the root node."""
         return self.root.keys
     def save_tree(self, filename):
-        """Save the B+ tree to disk using pickle."""
         import pickle
         with open(filename, 'wb') as f:
             pickle.dump(self.root, f)
